@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>나만의 테트리스 게임</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <div id="side-panel">
+            <p>점수: <span id="score">0</span></p>
+            <button id="start-button">시작</button>
+        </div>
+        
+        <div id="game-board">
+            </div>
+    </div>
+
+    <div id="mobile-controls">
+        <button id="left" class="control-btn">⬅️</button>
+        <button id="rotate" class="control-btn">🔄</button>
+        <button id="right" class="control-btn">➡️</button>
+        <button id="down" class="control-btn down-btn">⬇️</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+body {
+    display: flex;
+    flex-direction: column; /* 요소를 세로로 배치 */
+    align-items: center;
+    justify-content: space-around; /* 요소들을 적당히 띄워줍니다 */
+    height: 100vh; /* 화면 높이에 꽉 채우기 */
+    margin: 0;
+    overflow: hidden; /* 스크롤 못하게 막기 */
+    touch-action: manipulation; /* 화면 확대/축소 막기 */
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+}
+
+#game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 90%;
+    max-width: 400px; /* 너무 큰 화면에서는 적당히 크기 제한 */
+}
+
+#side-panel {
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+#game-board {
+    display: grid;
+    /* 옆으로 10칸, 아래로 20칸 나누기 */
+    grid-template-columns: repeat(10, 1fr); 
+    grid-template-rows: repeat(20, 1fr);   
+    width: 100%;
+    /* 보드가 10x20 비율을 유지하도록 합니다. */
+    aspect-ratio: 1 / 2; 
+    border: 5px solid #333;
+    background-color: #111;
+}
+
+.cell {
+    /* 각 칸의 기본 스타일 */
+    border: 1px solid #222;
+    box-sizing: border-box;
+}
+
+/* 블록 색깔 꾸미기 (나중에 JS에서 'block-i', 'block-o' 등으로 사용) */
+.block-i { background-color: #00ffff; border-color: #00dddd; } /* 하늘색 */
+.block-o { background-color: #ffff00; border-color: #dddd00; } /* 노란색 */
+.block-t { background-color: #800080; border-color: #6a006a; } /* 보라색 */
+.block-j { background-color: #0000ff; border-color: #0000dd; } /* 파란색 */
+.block-l { background-color: #ffaa00; border-color: #dd9900; } /* 주황색 */
+.block-s { background-color: #00ff00; border-color: #00dd00; } /* 초록색 */
+.block-z { background-color: #ff0000; border-color: #dd0000; } /* 빨간색 */
+
+/* 모바일 컨트롤 버튼 스타일 */
+#mobile-controls {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    width: 90%;
+    max-width: 400px;
+    padding: 10px 0;
+}
+
+.control-btn {
+    padding: 15px 25px;
+    font-size: 1.5rem;
+    height: 70px;
+    border-radius: 10px;
+    background-color: #4a90e2;
+    color: white;
+    border: none;
+    box-shadow: 0 4px 0 #3b73b9;
+    /* 터치 동작 보호 */
+    touch-action: manipulation; 
+}
+
+.control-btn:active {
+    /* 버튼을 누를 때 살짝 들어가는 효과 */
+    box-shadow: 0 1px 0 #3b73b9;
+    transform: translateY(3px);
+}
+
+#start-button {
+    padding: 10px 20px;
+    font-size: 1rem;
+}
+// --- 1. 기본 설정 ---
+
+const BOARD_WIDTH = 10;
+const BOARD_HEIGHT = 20;
+let score = 0;
+let gameBoard = document.getElementById('game-board');
+let scoreDisplay = document.getElementById('score');
+let gameTimer;
+let isGameOver = true;
+
+// 2차원 배열: 0은 빈칸, 1~7은 블록 종류
+let board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
+
+// --- 테트로미노 (블록) 모양 정의 ---
+// 각 블록의 모양과 ID (색깔 구분용)
+const TETROMINOES = [
+    { shape: [[1, 1, 1, 1]], id: 1, name: 'i' },
+    { shape: [[2, 2, 0], [0, 2, 2]], id: 2, name: 'z' },
+    { shape: [[0, 3, 3], [3, 3, 0]], id: 3, name: 's' },
+    { shape: [[4, 4], [4, 4]], id: 4, name: 'o' },
+    { shape: [[5, 5, 5], [0, 0, 5]], id: 5, name: 'l' },
+    { shape: [[6, 6, 6], [6, 0, 0]], id: 6, name: 'j' },
+    { shape: [[7, 7, 7], [0, 7, 0]], id: 7, name: 't' }
+];
+
+let currentPiece;
+let currentX;
+let currentY;
+
+// --- 2. 게임 시작 및 정지 ---
+
+document.getElementById('start-button').addEventListener('click', startGame);
+
+function startGame() {
+    if (!isGameOver) return; // 이미 게임 중이면 무시
+    
+    // 보드와 점수 초기화
+    board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
+    score = 0;
+    scoreDisplay.textContent = score;
+    isGameOver = false;
+
+    // 첫 블록 생성
+    newPiece();
+    
+    // 타이머 시작 (1초마다 블록이 떨어짐)
+    gameTimer = setInterval(moveDown, 1000);
+    document.getElementById('start-button').textContent = "일시정지";
+}
+
+// --- 3. 블록 만들기 ---
+
+function newPiece() {
+    const randomIndex = Math.floor(Math.random() * TETROMINOES.length);
+    currentPiece = {
+        shape: TETROMINOES[randomIndex].shape,
+        id: TETROMINOES[randomIndex].id,
+        name: TETROMINOES[randomIndex].name
+    };
+    currentX = 3; // 시작 위치 X
+    currentY = 0; // 시작 위치 Y
+
+    // 만약 새 블록이 생성되자마자 충돌하면 게임 오버!
+    if (checkCollision(currentX, currentY, currentPiece.shape)) {
+        clearInterval(gameTimer);
+        alert('게임 오버! 점수: ' + score);
+        isGameOver = true;
+        document.getElementById('start-button').textContent = "재시작";
+    }
+}
+
+// --- 4. 충돌 확인 (가장 중요한 규칙) ---
+
+function checkCollision(nextX, nextY, pieceShape) {
+    for (let y = 0; y < pieceShape.length; y++) {
+        for (let x = 0; x < pieceShape[y].length; x++) {
+            if (pieceShape[y][x]) { // 블록이 있는 칸만 검사
+                const newX = nextX + x;
+                const newY = nextY + y;
+
+                // 1. 보드 밖으로 나가는지 확인
+                if (newX < 0 || newX >= BOARD_WIDTH || newY >= BOARD_HEIGHT) {
+                    return true;
+                }
+                // 2. 이미 쌓여있는 블록과 겹치는지 확인
+                if (newY >= 0 && board[newY][newX] !== 0) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// --- 5. 블록 움직이기 ---
+
+function movePiece(dx, dy) {
+    if (isGameOver) return;
+    if (checkCollision(currentX + dx, currentY + dy, currentPiece.shape)) {
+        // 아래로 이동 중 충돌하면 블록 고정
+        if (dy === 1) {
+            lockPiece();
+        }
+        return false;
+    }
+    // 충돌 없으면 위치 업데이트
+    currentX += dx;
+    currentY += dy;
+    draw(); // 화면에 다시 그리기
+    return true;
+}
+
+// 1초마다 자동 호출되는 아래 이동 함수
+function moveDown() {
+    movePiece(0, 1);
+}
+
+// --- 6. 블록 고정 (바닥에 닿았을 때) ---
+
+function lockPiece() {
+    for (let y = 0; y < currentPiece.shape.length; y++) {
+        for (let x = 0; x < currentPiece.shape[y].length; x++) {
+            if (currentPiece.shape[y][x]) {
+                // 게임 보드에 현재 블록의 ID (색깔) 기록
+                board[currentY + y][currentX + x] = currentPiece.id;
+            }
+        }
+    }
+    clearLines(); // 줄이 꽉 찼는지 확인
+    newPiece();   // 새 블록 생성
+}
+
+// --- 7. 줄 지우기 ---
+
+function clearLines() {
+    for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
+        // 해당 줄에 0(빈칸)이 하나도 없으면 꽉 찬 줄
+        if (board[y].every(cell => cell !== 0)) {
+            // 그 줄을 지우고
+            board.splice(y, 1);
+            // 맨 위에 새로운 빈 줄을 추가
+            board.unshift(Array(BOARD_WIDTH).fill(0));
+            score += 10;
+            scoreDisplay.textContent = score;
+            y++; // 줄을 지웠으니 한 칸 내려간 그 줄을 다시 검사
+        }
+    }
+}
+
+// --- 8. 블록 회전 (간단한 버전) ---
+
+function rotatePiece() {
+    if (isGameOver) return;
+    const rows = currentPiece.shape.length;
+    const cols = currentPiece.shape[0].length;
+    let newShape = Array(cols).fill(0).map(() => Array(rows).fill(0));
+
+    // 시계 방향 90도 회전 공식
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            newShape[x][rows - 1 - y] = currentPiece.shape[y][x];
+        }
+    }
+    
+    if (!checkCollision(currentX, currentY, newShape)) {
+        currentPiece.shape = newShape;
+        draw();
+    }
+}
+
+
+// --- 9. 화면에 그리기 (렌더링) ---
+
+function draw() {
+    // 1. 보드 전체를 다시 그림
+    gameBoard.innerHTML = '';
+    for (let y = 0; y < BOARD_HEIGHT; y++) {
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            if (board[y][x] !== 0) {
+                // 이미 고정된 블록 표시
+                cell.classList.add(`block-${TETROMINOES.find(t => t.id === board[y][x]).name}`);
+            }
+            gameBoard.appendChild(cell);
+        }
+    }
+
+    // 2. 현재 떨어지고 있는 블록을 보드 위에 겹쳐서 그림
+    for (let y = 0; y < currentPiece.shape.length; y++) {
+        for (let x = 0; x < currentPiece.shape[y].length; x++) {
+            if (currentPiece.shape[y][x]) {
+                const cellIndex = (currentY + y) * BOARD_WIDTH + (currentX + x);
+                const cell = gameBoard.children[cellIndex];
+                if (cell) {
+                    // 떨어지는 블록 색깔 표시
+                    cell.classList.add(`block-${currentPiece.name}`);
+                }
+            }
+        }
+    }
+}
+
+// --- 10. 모바일 버튼에 터치 연결 (손가락에 반응) ---
+
+document.getElementById('left').addEventListener('touchstart', (e) => {
+    e.preventDefault(); // 기본 동작(스크롤) 막기
+    movePiece(-1, 0); // 왼쪽 이동
+});
+
+document.getElementById('right').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    movePiece(1, 0); // 오른쪽 이동
+});
+
+document.getElementById('down').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    movePiece(0, 1); // 한 칸 아래로 이동
+});
+
+document.getElementById('rotate').addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    rotatePiece(); // 회전
+});
+
+// 처음 게임이 로드될 때 화면을 한 번 그립니다.
+draw();
